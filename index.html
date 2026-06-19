@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cloud Cost Estimator | AWS Architecture Sandbox</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+        
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-color: #0B0F19; /* Deep space navy */
+        }
+        .mono-nums {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        /* Custom AWS Orange Focus Styles */
+        .aws-focus:focus {
+            outline: 2px solid #FF9900;
+            outline-offset: 1px;
+        }
+        /* Custom scrollbar for data fields */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #111827;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #374151;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #FF9900;
+        }
+    </style>
+</head>
+<body class="text-gray-200 min-h-screen flex flex-col antialiased selection:bg-amber-500/30"
+      x-data="costEstimator()"
+      x-init="calculateAll()">
+
+    <header class="border-b border-gray-800 bg-[#0E1424] px-6 py-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div class="flex items-center gap-3">
+            <div class="w-8 h-8 bg-[#FF9900] rounded flex items-center justify-center font-bold text-gray-900 text-sm shadow-[0_0_15px_rgba(255,153,0,0.3)]">
+                ☁️
+            </div>
+            <div>
+                <h1 class="text-lg font-bold tracking-tight text-white flex items-center gap-2">
+                    AWS Cost Estimator <span class="text-xs font-mono px-2 py-0.5 rounded bg-gray-800 text-gray-400 border border-gray-700">v2.1</span>
+                </h1>
+                <p class="text-xs text-gray-400">Architecture scoping & monthly runway calculator</p>
+            </div>
+        </div>
+
+        <div class="flex flex-wrap gap-2 bg-gray-900/60 p-1.5 rounded-lg border border-gray-800">
+            <span class="text-xs font-medium text-gray-400 self-center px-2">Presets:</span>
+            <button @click="applyPreset('small')" :class="activePreset === 'small' ? 'bg-[#FF9900] text-gray-900 font-medium' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'" class="text-xs px-3 py-1.5 rounded transition-all cursor-pointer">
+                Side Project
+            </button>
+            <button @click="applyPreset('startup')" :class="activePreset === 'startup' ? 'bg-[#FF9900] text-gray-900 font-medium' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'" class="text-xs px-3 py-1.5 rounded transition-all cursor-pointer">
+                Startup App
+            </button>
+            <button @click="applyPreset('production')" :class="activePreset === 'production' ? 'bg-[#FF9900] text-gray-900 font-medium' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'" class="text-xs px-3 py-1.5 rounded transition-all cursor-pointer">
+                Prod Workload
+            </button>
+        </div>
+    </header>
+
+    <main class="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6 p-6 max-w-7xl w-full mx-auto">
+        
+        <div class="lg:col-span-2 flex flex-col gap-4">
+            
+            <div class="flex border-b border-gray-800 bg-[#0E1424] rounded-t-lg overflow-hidden">
+                <button @click="activeTab = 'ec2'" :class="activeTab === 'ec2' ? 'border-b-2 border-[#FF9900] bg-gray-900/40 text-white' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-900/20'" class="flex-1 py-3 text-sm font-semibold transition-all flex items-center justify-center gap-2 cursor-pointer">
+                    🖥️ EC2 Instances
+                </button>
+                <button @click="activeTab = 's3'" :class="activeTab === 's3' ? 'border-b-2 border-[#FF9900] bg-gray-900/40 text-white' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-900/20'" class="flex-1 py-3 text-sm font-semibold transition-all flex items-center justify-center gap-2 cursor-pointer">
+                    📦 S3 Storage
+                </button>
+                <button @click="activeTab = 'lambda'" :class="activeTab === 'lambda' ? 'border-b-2 border-[#FF9900] bg-gray-900/40 text-white' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-900/20'" class="flex-1 py-3 text-sm font-semibold transition-all flex items-center justify-center gap-2 cursor-pointer">
+                    ⚡ Lambda Serverless
+                </button>
+            </div>
+
+            <div class="bg-[#0E1424] border border-gray-800 rounded-b-lg p-6 flex-1 min-h-[420px]">
+                
+                <div x-show="activeTab === 'ec2'" x-transition class="space-y-6">
+                    <div class="flex justify-between items-center border-b border-gray-800 pb-3">
+                        <h2 class="text-base font-semibold text-white">Compute Config (Elastic Compute Cloud)</h2>
+                        <span class="text-xs text-gray-400 font-mono">Cost Unit: $/Hour</span>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Instance Family / Specification</label>
+                            <select x-model="ec2.family" @change="calculateAll()" class="w-full bg-gray-900 border border-gray-700 rounded p-2 text-sm text-white aws-focus cursor-pointer">
+                                <option value="t3.micro">t3.micro (2 vCPU, 1 GiB RAM) — ~$0.0104/hr</option>
+                                <option value="t3.medium">t3.medium (2 vCPU, 4 GiB RAM) — ~$0.0416/hr</option>
+                                <option value="m5.large">m5.large (2 vCPU, 8 GiB RAM) — ~$0.0960/hr</option>
+                                <option value="c5.xlarge">c5.xlarge (4 vCPU, 8 GiB RAM) — ~$0.1700/hr</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Number of Nodes</label>
+                            <input type="number" min="1" max="100" x-model.number="ec2.count" @input="calculateAll()" class="w-full bg-gray-900 border border-gray-700 rounded p-2 text-sm text-white aws-focus">
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="flex justify-between text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+                            <span>Operational Hours (Per Month)</span>
+                            <span class="text-[#FF9900] mono-nums" x-text="ec2.hours + ' hrs'">730 hrs</span>
+                        </div>
+                        <input type="range" min="1" max="730" x-model.number="ec2.hours" @input="calculateAll()" class="w-full h-1.5 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-[#FF9900]">
+                        <span class="text-[11px] text-gray-500 block mt-1">(730 hours equals standard 24/7 monthly uptime)</span>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Purchasing Option Model</label>
+                        <div class="grid grid-cols-3 gap-3">
+                            <label :class="ec2.tier === 'ondemand' ? 'border-[#FF9900] bg-[#FF9900]/10 text-white' : 'border-gray-800 bg-gray-900 text-gray-400'" class="border rounded p-3 text-center cursor-pointer hover:border-gray-600 transition-all flex flex-col justify-center items-center">
+                                <input type="radio" value="ondemand" x-model="ec2.tier" @change="calculateAll()" class="sr-only">
+                                <span class="text-sm font-semibold">On-Demand</span>
+                                <span class="text-[10px] text-gray-500 mt-1">Standard rate</span>
+                            </label>
+                            <label :class="ec2.tier === 'reserved' ? 'border-[#FF9900] bg-[#FF9900]/10 text-white' : 'border-gray-800 bg-gray-900 text-gray-400'" class="border rounded p-3 text-center cursor-pointer hover:border-gray-600 transition-all flex flex-col justify-center items-center">
+                                <input type="radio" value="reserved" x-model="ec2.tier" @change="calculateAll()" class="sr-only">
+                                <span class="text-sm font-semibold text-emerald-400">Reserved (1y)</span>
+                                <span class="text-[10px] text-emerald-500/80 font-mono mt-1">Save ~35%</span>
+                            </label>
+                            <label :class="ec2.tier === 'spot' ? 'border-[#FF9900] bg-[#FF9900]/10 text-white' : 'border-gray-800 bg-gray-900 text-gray-400'" class="border rounded p-3 text-center cursor-pointer hover:border-gray-600 transition-all flex flex-col justify-center items-center">
+                                <input type="radio" value="spot" x-model="ec2.tier" @change="calculateAll()" class="sr-only">
+                                <span class="text-sm font-semibold text-sky-400">Spot Market</span>
+                                <span class="text-[10px] text-sky-500/80 font-mono mt-1">Save ~70%</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div x-show="activeTab === 's3'" x-transition class="space-y-6">
+                    <div class="flex justify-between items-center border-b border-gray-800 pb-3">
+                        <h2 class="text-base font-semibold text-white">Object Storage Strategy (Simple Storage Service)</h2>
+                        <span class="text-xs text-gray-400 font-mono">Cost Unit: GB / API Event</span>
+                    </div>
+
+                    <div>
+                        <div class="flex justify-between text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+                            <span>Storage Capacity Allocation</span>
+                            <span class="text-[#FF9900] mono-nums" x-text="s3.storage >= 1000 ? (s3.storage/1000).toFixed(1) + ' TB' : s3.storage + ' GB'"></span>
+                        </div>
+                        <input type="range" min="1" max="5000" x-model.number="s3.storage" @input="calculateAll()" class="w-full h-1.5 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-[#FF9900]">
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Storage Availability Class</label>
+                            <select x-model="s3.class" @change="calculateAll()" class="w-full bg-gray-900 border border-gray-700 rounded p-2 text-sm text-white aws-focus cursor-pointer">
+                                <option value="standard">S3 Standard (High Performance / Active Data)</option>
+                                <option value="ia">S3 Infrequent Access (Rapid access, low frequency)</option>
+                                <option value="glacier">S3 Glacier Flexible (Archive data - hours recovery)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Data Transfer Out (Internet / GB)</label>
+                            <input type="number" min="0" x-model.number="s3.transfer" @input="calculateAll()" class="w-full bg-gray-900 border border-gray-700 rounded p-2 text-sm text-white aws-focus">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Monthly Operational Requests (GET/PUT count)</label>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div class="relative">
+                                <input type="number" min="0" x-model.number="s3.requestsWrite" @input="calculateAll()" class="w-full bg-gray-900 border border-gray-700 rounded p-2 pr-16 text-sm text-white aws-focus">
+                                <div class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-xs text-gray-500 font-mono">PUT/POST</div>
+                            </div>
+                            <div class="relative">
+                                <input type="number" min="0" x-model.number="s3.requestsRead" @input="calculateAll()" class="w-full bg-gray-900 border border-gray-700 rounded p-2 pr-16 text-sm text-white aws-focus">
+                                <div class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-xs text-gray-500 font-mono">GET/SELECT</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div x-show="activeTab === 'lambda'" x-transition class="space-y-6">
+                    <div class="flex justify-between items-center border-b border-gray-800 pb-3">
+                        <h2 class="text-base font-semibold text-white">Serverless Compute Matrix (AWS Lambda)</h2>
+                        <span class="text-xs text-gray-400 font-mono">Includes AWS Always-Free Tier evaluation</span>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div class="md:col-span-1">
+                            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Monthly Invocations</label>
+                            <input type="number" min="0" x-model.number="lambda.requests" @input="calculateAll()" class="w-full bg-gray-900 border border-gray-700 rounded p-2 text-sm text-white aws-focus">
+                        </div>
+                        <div class="md:col-span-1">
+                            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Execution Duration (ms)</label>
+                            <input type="number" min="1" step="10" x-model.number="lambda.duration" @input="calculateAll()" class="w-full bg-gray-900 border border-gray-700 rounded p-2 text-sm text-white aws-focus">
+                        </div>
+                        <div class="md:col-span-1">
+                            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Allocated Memory (MB)</label>
+                            <select x-model.number="lambda.memory" @change="calculateAll()" class="w-full bg-gray-900 border border-gray-700 rounded p-2 text-sm text-white aws-focus cursor-pointer">
+                                <option value="128">128 MB</option>
+                                <option value="512">512 MB</option>
+                                <option value="1024">1024 MB (1 GB)</option>
+                                <option value="2048">2048 MB (2 GB)</option>
+                                <option value="4096">4096 MB (4 GB)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="bg-gray-900/80 border border-gray-800 rounded-lg p-4 space-y-3">
+                        <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
+                            🎁 Monthly Free Tier Utilization Balance
+                        </h3>
+                        
+                        <div>
+                            <div class="flex justify-between text-xs mb-1">
+                                <span class="text-gray-400">Invocations (1,000,000 Free)</span>
+                                <span class="mono-nums text-gray-300" x-text="Math.min(100, (lambda.requests / 1000000) * 100).toFixed(0) + '% Used'"></span>
+                            </div>
+                            <div class="w-full bg-gray-800 h-1.5 rounded-full overflow-hidden">
+                                <div class="bg-[#FF9900] h-full" :style="'width: ' + Math.min(100, (lambda.requests / 1000000) * 100) + '%'"></div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <div class="flex justify-between text-xs mb-1">
+                                <span class="text-gray-400">Compute Seconds (400,000 GB-Sec Free)</span>
+                                <span class="mono-nums text-gray-300" x-text="Math.min(100, (lambdaComputeGbSec / 400000) * 100).toFixed(0) + '% Used'"></span>
+                            </div>
+                            <div class="w-full bg-gray-800 h-1.5 rounded-full overflow-hidden">
+                                <div class="bg-sky-400 h-full" :style="'width: ' + Math.min(100, (lambdaComputeGbSec / 400000) * 100) + '%'"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <div class="bg-[#0E1424] border border-gray-800 rounded-lg p-6 flex flex-col justify-between shadow-xl">
+            <div>
+                <h2 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4 pb-2 border-b border-gray-800">
+                    Cost Assessment Matrix
+                </h2>
+
+                <div class="text-center py-6 bg-gray-900/40 rounded-lg border border-gray-800/60 mb-6">
+                    <p class="text-xs font-medium text-gray-400 uppercase tracking-widest mb-1">Total Estimated Runway Cost</p>
+                    <div class="text-3xl font-bold text-white mono-nums flex items-baseline justify-center gap-1">
+                        <span class="text-[#FF9900] text-xl">$</span>
+                        <span class="text-4xl text-white tracking-tight" x-text="costs.total.toFixed(2)">0.00</span>
+                        <span class="text-xs font-normal text-gray-400 ml-1">/ mo</span>
+                    </div>
+                </div>
+
+                <div class="space-y-4">
+                    <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Service Allocations</h3>
+                    
+                    <div class="space-y-1">
+                        <div class="flex justify-between text-xs font-medium">
+                            <span class="text-gray-300 flex items-center gap-1.5">
+                                <span class="w-2 h-2 rounded-full bg-[#FF9900]"></span> EC2 Compute
+                            </span>
+                            <span class="mono-nums text-white" x-text="'$' + costs.ec2.toFixed(2)">$0.00</span>
+                        </div>
+                        <div class="w-full bg-gray-900 h-2 rounded overflow-hidden">
+                            <div class="bg-[#FF9900] h-full transition-all duration-300" :style="'width: ' + (costs.total > 0 ? (costs.ec2 / costs.total) * 100 : 0) + '%'"></div>
+                        </div>
+                        <div x-show="ec2.tier !== 'ondemand'" class="text-[10px] text-emerald-400 text-right font-mono font-medium">
+                            ✓ Savings active vs On-Demand: <span x-text="ec2.tier === 'spot' ? '70%' : '35%'"></span>
+                        </div>
+                    </div>
+
+                    <div class="space-y-1">
+                        <div class="flex justify-between text-xs font-medium">
+                            <span class="text-gray-300 flex items-center gap-1.5">
+                                <span class="w-2 h-2 rounded-full bg-emerald-400"></span> S3 Ecosystem
+                            </span>
+                            <span class="mono-nums text-white" x-text="'$' + costs.s3.toFixed(2)">$0.00</span>
+                        </div>
+                        <div class="w-full bg-gray-900 h-2 rounded overflow-hidden">
+                            <div class="bg-emerald-400 h-full transition-all duration-300" :style="'width: ' + (costs.total > 0 ? (costs.s3 / costs.total) * 100 : 0) + '%'"></div>
+                        </div>
+                    </div>
+
+                    <div class="space-y-1">
+                        <div class="flex justify-between text-xs font-medium">
+                            <span class="text-gray-300 flex items-center gap-1.5">
+                                <span class="w-2 h-2 rounded-full bg-sky-400"></span> Lambda Engine
+                            </span>
+                            <span class="mono-nums text-white" x-text="'$' + costs.lambda.toFixed(2)">$0.00</span>
+                        </div>
+                        <div class="w-full bg-gray-900 h-2 rounded overflow-hidden">
+                            <div class="bg-sky-400 h-full transition-all duration-300" :style="'width: ' + (costs.total > 0 ? (costs.lambda / costs.total) * 100 : 0) + '%'"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-8 pt-4 border-t border-gray-800">
+                <button @click="copyManifestToClipboard()" class="w-full bg-gray-800 hover:bg-gray-700 text-white font-medium text-xs py-2.5 px-4 rounded transition-all flex items-center justify-center gap-2 border border-gray-700 active:scale-[0.99] cursor-pointer">
+                    <span x-text="copied ? '📋 Deployment Manifest Copied!' : '🚀 Export Architecture Digest'"></span>
+                </button>
+            </div>
+        </div>
+
+    </main>
+
+    <footer class="border-t border-gray-900 bg-[#070A12] px-6 py-3 text-center text-[11px] text-gray-500 tracking-wide">
+        Disclaimer: Calculated estimates are for illustrative, design-scoping purposes only. Live application deployments fluctuate based on dynamic metrics, real-time AWS API localization rates, tax variables, and continuous changes not recorded herein.
+    </footer>
+
+    <script>
+        function costEstimator() {
+            return {
+                activeTab: 'ec2',
+                activePreset: 'small',
+                copied: false,
+                
+                // Config parameters
+                ec2: { family: 't3.micro', count: 1, hours: 730, tier: 'ondemand' },
+                s3: { storage: 15, class: 'standard', transfer: 5, requestsWrite: 50000, requestsRead: 200000 },
+                lambda: { requests: 800000, duration: 150, memory: 512 },
+                
+                // Track compute calculation parameters separate for display bindings
+                lambdaComputeGbSec: 0,
+
+                // Evaluated Cost Allocations
+                costs: { ec2: 0, s3: 0, lambda: 0, total: 0 },
+
+                // Base rates structures
+                rates: {
+                    ec2: { 't3.micro': 0.0104, 't3.medium': 0.0416, 'm5.large': 0.0960, 'c5.xlarge': 0.1700 },
+                    s3Storage: { standard: 0.023, ia: 0.0125, glacier: 0.0036 },
+                    s3Put: 0.005 / 1000, // per 1k requests
+                    s3Get: 0.0004 / 1000, // per 1k requests
+                    s3DataOut: 0.09, // per GB
+                    lambdaRequestBase: 0.0000002, // $0.20 per million
+                    lambdaGbSecBase: 0.0000166667 // $0.0000166667 per GB-second
+                },
+
+                // Presets definitions
+                presets: {
+                    small: {
+                        ec2: { family: 't3.micro', count: 1, hours: 730, tier: 'ondemand' },
+                        s3: { storage: 10, class: 'standard', transfer: 5, requestsWrite: 10000, requestsRead: 50000 },
+                        lambda: { requests: 500000, duration: 100, memory: 128 }
+                    },
+                    startup: {
+                        ec2: { family: 't3.medium', count: 3, hours: 730, tier: 'reserved' },
+                        s3: { storage: 250, class: 'standard', transfer: 80, requestsWrite: 500000, requestsRead: 2500000 },
+                        lambda: { requests: 8000000, duration: 200, memory: 512 }
+                    },
+                    production: {
+                        ec2: { family: 'c5.xlarge', count: 4, hours: 730, tier: 'spot' },
+                        s3: { storage: 2000, class: 'standard', transfer: 500, requestsWrite: 5000000, requestsRead: 30000000 },
+                        lambda: { requests: 45000000, duration: 250, memory: 1024 }
+                    }
+                },
+
+                applyPreset(key) {
+                    this.activePreset = key;
+                    const config = this.presets[key];
+                    this.ec2 = JSON.parse(JSON.stringify(config.ec2));
+                    this.s3 = JSON.parse(JSON.stringify(config.s3));
+                    this.lambda = JSON.parse(JSON.stringify(config.lambda));
+                    this.calculateAll();
+                },
+
+                calculateAll() {
+                    // 1. EC2 Calculation Engine
+                    let ec2HourlyBase = this.rates.ec2[this.ec2.family];
+                    if (this.ec2.tier === 'reserved') ec2HourlyBase *= 0.65; // 35% discount
+                    if (this.ec2.tier === 'spot') ec2HourlyBase *= 0.30;     // 70% discount
+                    this.costs.ec2 = ec2HourlyBase * this.ec2.count * this.ec2.hours;
+
+                    // 2. S3 Calculation Engine
+                    const s3StorageCost = this.s3.storage * this.rates.s3Storage[this.s3.class];
+                    const s3WriteCost = (this.s3.requestsWrite * this.rates.s3Put);
+                    const s3ReadCost = (this.s3.requestsRead * this.rates.s3Get);
+                    const s3TransferCost = this.s3.transfer * this.rates.s3DataOut;
+                    this.costs.s3 = s3StorageCost + s3WriteCost + s3ReadCost + s3TransferCost;
+
+                    // 3. Lambda Calculation Engine
+                    const totalSecs = (this.lambda.duration / 1000);
+                    const memGb = (this.lambda.memory / 1024);
+                    this.lambdaComputeGbSec = this.lambda.requests * totalSecs * memGb;
+
+                    // Apply AWS Free Tier parameters
+                    const billableRequests = Math.max(0, this.lambda.requests - 1000000);
+                    const billableGbSec = Math.max(0, this.lambdaComputeGbSec - 400000);
+
+                    const lambdaReqCost = billableRequests * this.rates.lambdaRequestBase;
+                    const lambdaExecutionCost = billableGbSec * this.rates.lambdaGbSecBase;
+                    this.costs.lambda = lambdaReqCost + lambdaExecutionCost;
+
+                    // Total Matrix Aggregation
+                    this.costs.total = this.costs.ec2 + this.costs.s3 + this.costs.lambda;
+                },
+
+                copyManifestToClipboard() {
+                    const manifestText = `=========================================
+AWS BILLING COST METRIC MANIFEST DIGEST
+=========================================
+Preset Architecture Target: ${this.activePreset.toUpperCase()}
+Total Aggregate Monthly Cost Estimation: $${this.costs.total.toFixed(2)} / Month
+
+[SERVICE SEPARATION MATRICES]
+1. Elastic Compute Cloud (EC2): $${this.costs.ec2.toFixed(2)}/mo
+   - Specification Family: ${this.ec2.family}
+   - Fleet Density Count: ${this.ec2.count} Active Node(s)
+   - Operational Runway: ${this.ec2.hours} Hours/Month
+   - Procurement Model Type: ${this.ec2.tier.toUpperCase()}
+
+2. Simple Storage Service (S3): $${this.costs.s3.toFixed(2)}/mo
+   - Volumetric Storage: ${this.s3.storage} GB
+   - Availability Class: ${this.s3.class.toUpperCase()}
+   - Infrastructure Network Outflow: ${this.s3.transfer} GB Data Transfer
+   - Operational API Pipeline Volumes: Read (${this.s3.requestsRead}), Write (${this.s3.requestsWrite})
+
+3. Lambda Engine Environment: $${this.costs.lambda.toFixed(2)}/mo
+   - Target API Event Invocations: ${this.lambda.requests} requests/mo
+   - Performance Window Duration: ${this.lambda.duration} ms
+   - Architecture RAM Allocation: ${this.lambda.memory} MB
+
+-----------------------------------------
+Disclaimer: Architectural configurations calculated are for scoping models and mock environments only. Continuous resource metrics are liable to localization shifts.
+Generated via AWS Architecture Sandbox Engine.
+=========================================`;
+
+                    navigator.clipboard.writeText(manifestText).then(() => {
+                        this.copied = true;
+                        setTimeout(() => this.copied = false, 3000);
+                    });
+                }
+            }
+        }
+    </script>
+</body>
+</html>
